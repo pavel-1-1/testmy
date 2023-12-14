@@ -1,0 +1,18 @@
+body {
+     background-color: rgb(111, 231, 129);
+ }
+ h1 {
+     color: rgb(13, 13, 17);
+ }
+ #title {
+     font-family: 'Gill Sans MT';
+     font-size: 25px;
+     font-weight: bold;
+    width: 1000;
+    text-align: justify;
+ }
+ #description {
+     width: 1000px;
+     text-align: justify;
+     font: bold 15px/1.5 Arial;
+ }

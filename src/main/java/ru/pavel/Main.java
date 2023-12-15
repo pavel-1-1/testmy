@@ -6,7 +6,12 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.*;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -17,9 +22,13 @@ import java.util.stream.Stream;
 public class Main {
     static Logger logger = Logger.getLogger("server");
     static Map<String, String> mapStatic = new HashMap<>();
+    static final String KEY = "ZAEOu9nfCO4c35CbvCbZECY5Pl9MFOd0LpzPK5be";
+    static String URL_NASA = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY";
+    static final String IMAGE_PATH_TEXT = "C:/java/test-tasks/nasa-api/images_nasa_text";
 
     public static void main(String[] args) throws IOException, URISyntaxException, InterruptedException {
         mapStatic = StaticOut.staticFile();
+        URL_NASA = URL_NASA.replace("DEMO_KEY", KEY);
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 80), 0);
         server.createContext("/", new GetHandler());
         server.setExecutor(Executors.newFixedThreadPool(1));
@@ -39,15 +48,48 @@ public class Main {
                 outInClient(bytes, exchange);
                 return;
             }
-            if (urlReq.equals("")) {
+            if (urlReq.isEmpty()) {
+                NasaGet nasaGet;
+                try {
+                    InputStream in = getUrl(URL_NASA);
+                    String nasa = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    nasaGet = parseJson(nasa);
+                    SaveFile.image(nasaGet, getUrl(nasaGet.hdurl));
+                    SaveFile.text(nasaGet);
+                    in.close();
+                } catch (URISyntaxException e) {
+                    throw new RuntimeException(e);
+                }
                 byte[] bytes = StaticOut.getStatic("nasa.html", mapStatic);
-                outInClient(bytes, exchange);
+                outInClient(StaticOut.replace(nasaGet, new String(bytes, StandardCharsets.UTF_8)), exchange);
             } else if (mapStatic.containsKey(urlReq)) {
                 byte[] bytes = StaticOut.getStatic(urlReq, mapStatic);
                 outInClient(bytes, exchange);
             } else {
                 outInClient(null, exchange);
             }
+        }
+
+        private NasaGet parseJson(String nasa) {
+            NasaGet nasaGet = new NasaGet();
+            String[] strings = nasa.split("\",\"");
+            nasaGet.setCopyright(subText(strings[0]));
+            nasaGet.setDate(subText(strings[1]));
+            nasaGet.setExplanation(subText(strings[2]));
+            nasaGet.setHdurl(subText(strings[3]));
+            nasaGet.setMedia_type(strings[4]);
+            nasaGet.setService_version(strings[5]);
+            nasaGet.setTitle(subText(strings[6]));
+            nasaGet.setUrl(strings[7]);
+            return nasaGet;
+        }
+
+        private String subText(String text) {
+            return text.substring(text.indexOf(":\"") + 2);
+        }
+
+        private InputStream getUrl(String url) throws URISyntaxException, IOException {
+            return new URI(url).toURL().openStream();
         }
 
         private void outInClient(byte[] bytes, HttpExchange exchange) throws IOException {
@@ -63,7 +105,30 @@ public class Main {
         }
     }
 
+    static class SaveFile {
+        static void image(NasaGet nasaGet, InputStream in) throws IOException {
+            File file = new File(IMAGE_PATH_TEXT, nasaGet.title + nasaGet.hdurl.substring(nasaGet.hdurl.lastIndexOf(".")));
+            Files.copy(in, Path.of(file.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        static void text(NasaGet nasaGet) throws IOException {
+            File file = new File(IMAGE_PATH_TEXT, nasaGet.title + ".txt");
+            FileOutputStream out = new FileOutputStream(file);
+            out.write(nasaGet.explanation.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            out.close();
+        }
+    }
+
     static class StaticOut {
+        static byte[] replace(NasaGet nasaGet, String html) {
+            String title = nasaGet.title;
+            String image = nasaGet.title + nasaGet.hdurl.substring(nasaGet.hdurl.lastIndexOf("."));
+            String desc = nasaGet.explanation;
+            return html.replace("TITLE", title).replace("DESCRIPT", desc).replace("JPG", "IMAGE" + image)
+                    .getBytes();
+        }
+
         static byte[] getStatic(String path, Map<String, String> map) {
             try (InputStream in = new FileInputStream(map.get(path))) {
                 return in.readAllBytes();

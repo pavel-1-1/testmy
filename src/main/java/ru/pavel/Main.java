@@ -1,6 +1,5 @@
 package ru.pavel;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -9,12 +8,9 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
@@ -26,13 +22,16 @@ import java.util.stream.Stream;
 public class Main {
     static Logger logger = Logger.getLogger("server");
     static Map<String, String> mapStatic = new HashMap<>();
-    static String URL_A = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY";
-    static String KEY = "ZAEOu9nfCO4c35CbvCbZECY5Pl9MFOd0LpzPK5be";
-    static String pathSave = "C:/corporatex/testmy/images_nasa_text";
-    static String pathStatic = "C:/corporatex/testmy/src/main/resources/static";
+    static final String KEY = "ZAEOu9nfCO4c35CbvCbZECY5Pl9MFOd0LpzPK5be";
+    static String URL_NASA = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY";
+    static String pathStatic = "src/main/resources/static";
+    static final String IMAGE_PATH_TEXT = "images_nasa_text";
 
-    public static void main(String[] args) throws IOException, URISyntaxException, InterruptedException {
+    public static void main(String[] args) throws IOException {
+        File file = new File(IMAGE_PATH_TEXT);
+        if (!file.exists()) file.mkdir();
         mapStatic = StaticOut.staticFile();
+        URL_NASA = URL_NASA.replace("DEMO_KEY", KEY);
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 80), 0);
         server.createContext("/", new GetHandler());
         server.setExecutor(Executors.newFixedThreadPool(1));
@@ -42,7 +41,6 @@ public class Main {
     }
 
     static class GetHandler implements HttpHandler {
-        HttpClient httpClient;
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -54,28 +52,49 @@ public class Main {
                 outInClient(bytes, exchange);
                 return;
             }
-            if (urlReq.equals("")) {
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(URL_A.replaceAll("DEMO_KEY", KEY)))
-                        .GET()
-                        .build();
-                HttpResponse<String> response;
-                NasaGet nasaGet = null;
+            if (urlReq.isEmpty()) {
+                NasaGet nasaGet;
                 try {
-                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    nasaGet = new ObjectMapper().readValue(response.body(), NasaGet.class);
-                } catch (InterruptedException e) {
-                    logger.info(e.toString());
+                    InputStream in = getUrl(URL_NASA);
+                    String nasa = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                    nasaGet = parseJson(nasa);
+                    System.out.println(nasaGet);
+                    SaveFile.image(nasaGet, getUrl(nasaGet.hdurl));
+                    SaveFile.text(nasaGet);
+                    in.close();
+                } catch (URISyntaxException e) {
+                    throw new RuntimeException(e);
                 }
-                SaveFile.save(nasaGet);
                 byte[] bytes = StaticOut.getStatic("nasa.html", mapStatic);
-                outInClient(bytes, exchange);
+                outInClient(StaticOut.replace(nasaGet, new String(bytes, StandardCharsets.UTF_8)), exchange);
             } else if (mapStatic.containsKey(urlReq)) {
                 byte[] bytes = StaticOut.getStatic(urlReq, mapStatic);
                 outInClient(bytes, exchange);
             } else {
                 outInClient(null, exchange);
             }
+        }
+
+        private NasaGet parseJson(String nasa) {
+            NasaGet nasaGet = new NasaGet();
+            String[] strings = nasa.split("\",\"");
+            nasaGet.setCopyright(subText(strings[0]));
+            nasaGet.setDate(subText(strings[1]));
+            nasaGet.setExplanation(subText(strings[2]));
+            nasaGet.setHdurl(subText(strings[3]));
+            nasaGet.setMedia_type(strings[4]);
+            nasaGet.setService_version(strings[5]);
+            nasaGet.setTitle(subText(strings[6]));
+            nasaGet.setUrl(strings[7]);
+            return nasaGet;
+        }
+
+        private String subText(String text) {
+            return text.substring(text.indexOf(":\"") + 2);
+        }
+
+        private InputStream getUrl(String url) throws URISyntaxException, IOException {
+            return new URI(url).toURL().openStream();
         }
 
         private void outInClient(byte[] bytes, HttpExchange exchange) throws IOException {
@@ -92,41 +111,29 @@ public class Main {
     }
 
     static class SaveFile {
-        static void save(NasaGet nasaGet) {
-            String pathFile = nasaGet.title + nasaGet.hdurl.substring(nasaGet.hdurl.lastIndexOf("."));
-            System.out.println(pathFile);
-//            File file = new File(pathSave, pathFile);
-//            try (InputStream in = new URL(nasaGet.hdurl).openStream()) {
-//                if (file.createNewFile()) {
-//                    Files.copy(in, Paths.get(file.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
-//                }
-//            } catch (IOException ignored) {
-//            }
+        static void image(NasaGet nasaGet, InputStream in) throws IOException {
+            File file = new File(IMAGE_PATH_TEXT, nasaGet.title + nasaGet.hdurl.substring(nasaGet.hdurl.lastIndexOf(".")));
+            Files.copy(in, Path.of(file.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
         }
 
-        static String create(NasaGet nasaGet) {
-            String pathFile = nasaGet.title + nasaGet.hdurl.substring(nasaGet.hdurl.lastIndexOf("."));
-            File file = new File(pathFile);
-            try (InputStream in = new URL(nasaGet.hdurl).openStream()) {
-                if (file.createNewFile()) {
-                    Files.copy(in, Paths.get(file.getAbsolutePath()), StandardCopyOption.REPLACE_EXISTING);
-                }
-            } catch (IOException ignored) {
-            }
-            return file.getAbsolutePath();
+        static void text(NasaGet nasaGet) throws IOException {
+            File file = new File(IMAGE_PATH_TEXT, nasaGet.title + ".txt");
+            FileOutputStream out = new FileOutputStream(file);
+            out.write(nasaGet.explanation.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            out.close();
         }
-
-        //       static byte[] replace(NasaGet nasaGet) {
-//            String title = nasaGet.title;
-//            String image = create(nasaGet);
-//            path = image;
-//            String desc = nasaGet.explanation;
-//            return html.replace("TITLE", title).replace("DESCRIPT", desc).replace("JPG", image)
-//                    .getBytes();
-        //      }
     }
 
     static class StaticOut {
+        static byte[] replace(NasaGet nasaGet, String html) {
+            String title = nasaGet.title;
+            String image = nasaGet.title + nasaGet.hdurl.substring(nasaGet.hdurl.lastIndexOf("."));
+            String desc = nasaGet.explanation;
+            return html.replace("TITLE", title).replace("DESCRIPT", desc).replace("JPG", "IMAGE" + image)
+                    .getBytes();
+        }
+
         static byte[] getStatic(String path, Map<String, String> map) {
             try (InputStream in = new FileInputStream(map.get(path))) {
                 return in.readAllBytes();
@@ -136,7 +143,7 @@ public class Main {
         }
 
         static byte[] getImage(String nameImage) throws IOException {
-            File file = new File(pathSave);
+            File file = new File(IMAGE_PATH_TEXT);
             for (File listFile : file.listFiles()) {
                 if (listFile.getName().equals(nameImage)) {
                     try (FileInputStream in = new FileInputStream(listFile.getAbsolutePath())) {

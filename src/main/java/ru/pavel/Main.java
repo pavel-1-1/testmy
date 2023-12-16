@@ -26,7 +26,8 @@ public class Main {
     static String URL_NASA = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY";
     static final String IMAGE_PATH_TEXT = "C:/java/test-tasks/nasa-api/images_nasa_text";
 
-    public static void main(String[] args) throws IOException, URISyntaxException, InterruptedException {
+    public static void main(String[] args) throws IOException {
+        new File("images_nasa_text").mkdir();
         mapStatic = StaticOut.staticFile();
         URL_NASA = URL_NASA.replace("DEMO_KEY", KEY);
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 80), 0);

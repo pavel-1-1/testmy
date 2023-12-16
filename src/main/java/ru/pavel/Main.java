@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -22,14 +23,22 @@ import java.util.stream.Stream;
 public class Main {
     static Logger logger = Logger.getLogger("server");
     static Map<String, String> mapStatic = new HashMap<>();
-    static final String KEY = "ZAEOu9nfCO4c35CbvCbZECY5Pl9MFOd0LpzPK5be";
-    static String URL_NASA = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY";
-    static String pathStatic = "src/main/resources/static";
+    static String KEY;
+    static String URL_NASA;
+    static String pathStatic = "static";
     static final String IMAGE_PATH_TEXT = "images_nasa_text";
 
     public static void main(String[] args) throws IOException {
+        if (args.length != 2) return;
+        URL_NASA = args[0];
+        KEY = args[1];
+        System.out.println(URL_NASA + "--------" + KEY);
         File file = new File(IMAGE_PATH_TEXT);
         if (!file.exists()) file.mkdir();
+        File file1 = new File(pathStatic);
+        for (File listFile : file1.listFiles()) {
+            System.out.println(listFile.getAbsolutePath());
+        }
         mapStatic = StaticOut.staticFile();
         URL_NASA = URL_NASA.replace("DEMO_KEY", KEY);
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 80), 0);
@@ -58,7 +67,6 @@ public class Main {
                     InputStream in = getUrl(URL_NASA);
                     String nasa = new String(in.readAllBytes(), StandardCharsets.UTF_8);
                     nasaGet = parseJson(nasa);
-                    System.out.println(nasaGet);
                     SaveFile.image(nasaGet, getUrl(nasaGet.hdurl));
                     SaveFile.text(nasaGet);
                     in.close();
@@ -76,21 +84,38 @@ public class Main {
         }
 
         private NasaGet parseJson(String nasa) {
+            Map<String, String> splitJson = new HashMap<>() {{
+                put("copyright", null);
+                put("date", null);
+                put("explanation", null);
+                put("hdurl", null);
+                put("media_type", null);
+                put("service_version", null);
+                put("title", null);
+                put("url", null);
+            }};
             NasaGet nasaGet = new NasaGet();
-            String[] strings = nasa.split("\",\"");
-            nasaGet.setCopyright(subText(strings[0]));
-            nasaGet.setDate(subText(strings[1]));
-            nasaGet.setExplanation(subText(strings[2]));
-            nasaGet.setHdurl(subText(strings[3]));
-            nasaGet.setMedia_type(strings[4]);
-            nasaGet.setService_version(strings[5]);
-            nasaGet.setTitle(subText(strings[6]));
-            nasaGet.setUrl(strings[7]);
+            String[] strings = nasa.replace("{\"", "").replace("\"}", "")
+                    .split("\",\"");
+            putMapSplit(splitJson, strings);
+            nasaGet.setCopyright(splitJson.get("copyright"));
+            nasaGet.setDate(splitJson.get("date"));
+            nasaGet.setExplanation(splitJson.get("explanation"));
+            nasaGet.setHdurl(splitJson.get("hdurl"));
+            nasaGet.setMedia_type(splitJson.get("media_type"));
+            nasaGet.setService_version(splitJson.get("service_version"));
+            nasaGet.setTitle(splitJson.get("title"));
+            nasaGet.setUrl(splitJson.get("url"));
+            System.out.println(splitJson);
             return nasaGet;
         }
 
-        private String subText(String text) {
-            return text.substring(text.indexOf(":\"") + 2);
+        private void putMapSplit(Map<String, String> map, String[] arr) {
+            Arrays.stream(arr).forEach(text -> {
+                String key = text.substring(0, text.indexOf("\":"));
+                System.out.println(key);
+                map.put(key, text.substring(text.indexOf(":\"") + 2));
+            });
         }
 
         private InputStream getUrl(String url) throws URISyntaxException, IOException {
@@ -157,7 +182,8 @@ public class Main {
         }
 
         static Map<String, String> staticFile() {
-            return Stream.of(new File(pathStatic).listFiles()).filter(File::isFile)
+            File file = new File(pathStatic);
+            return Stream.of(new File(file.getAbsolutePath()).listFiles()).filter(File::isFile)
                     .collect(Collectors.toMap(File::getName, File::getAbsolutePath));
         }
     }

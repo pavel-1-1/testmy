@@ -5,9 +5,11 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.*;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +29,8 @@ public class Main {
     static String URL_NASA;
     static String pathStatic = "static";
     static final String IMAGE_PATH_TEXT = "images_nasa_text";
+
+    static final HttpClient client = HttpClient.newHttpClient();
 
     public static void main(String[] args) throws IOException {
         if (args.length != 2) return;
@@ -64,14 +68,22 @@ public class Main {
             if (urlReq.isEmpty()) {
                 NasaGet nasaGet;
                 try {
-                    InputStream in = getUrl(URL_NASA);
+                    InputStream in = getHttp(URL_NASA).getInputStream();
                     String nasa = new String(in.readAllBytes(), StandardCharsets.UTF_8);
                     nasaGet = parseJson(nasa);
-                    SaveFile.image(nasaGet, getUrl(nasaGet.hdurl));
+
+                    HttpURLConnection connection = getHttp(nasaGet.getHdurl());
+                    if (connection.getResponseCode() == 200) {
+                        SaveFile.image(nasaGet, connection.getInputStream());
+                    } else {
+                        connection = getHttp(nasaGet.getUrl());
+                        if (connection.getResponseCode() != 200) return;
+                        SaveFile.image(nasaGet, connection.getInputStream());
+                    }
                     SaveFile.text(nasaGet);
                     in.close();
                 } catch (URISyntaxException e) {
-                    throw new RuntimeException(e);
+                    throw new RuntimeException("error request");
                 }
                 byte[] bytes = StaticOut.getStatic("nasa.html", mapStatic);
                 outInClient(StaticOut.replace(nasaGet, new String(bytes, StandardCharsets.UTF_8)), exchange);
@@ -114,12 +126,12 @@ public class Main {
             Arrays.stream(arr).forEach(text -> {
                 String key = text.substring(0, text.indexOf("\":"));
                 System.out.println(key);
-                map.put(key, text.substring(text.indexOf(":\"") + 2));
+                map.put(key, text.substring(text.indexOf(":\"") + 2).replace("\n", ""));
             });
         }
 
-        private InputStream getUrl(String url) throws URISyntaxException, IOException {
-            return new URI(url).toURL().openStream();
+        private HttpURLConnection getHttp(String url) throws URISyntaxException, IOException {
+            return (HttpURLConnection) new URI(url).toURL().openConnection();
         }
 
         private void outInClient(byte[] bytes, HttpExchange exchange) throws IOException {
